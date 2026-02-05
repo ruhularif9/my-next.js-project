@@ -1,7 +1,10 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Force load .env.local from project root
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 import postgres from 'postgres';
-
 import bcrypt from 'bcrypt';
 
 const sql = postgres(process.env.DATABASE_URL!, { ssl: 'require' });

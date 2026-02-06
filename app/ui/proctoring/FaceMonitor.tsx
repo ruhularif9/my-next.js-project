@@ -4,45 +4,82 @@ import { useEffect, useRef, useState } from 'react';
 import { FaceDetection } from '@mediapipe/face_detection';
 import { Camera } from '@mediapipe/camera_utils';
 
+console.log('✅ FaceMonitor mounted');
+
+
 export default function FaceMonitor() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [faceVisible, setFaceVisible] = useState(true);
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
-        const faceDetection = new FaceDetection({
-            locateFile: (file) =>
-                `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
-        });
+        let isMounted = true;
+        let camera: Camera | null = null;
+        let faceDetection: FaceDetection | null = null;
 
-        faceDetection.setOptions({
-            model: 'short',
-            minDetectionConfidence: 0.5,
-        });
-
-        faceDetection.onResults((results) => {
-            console.log("Detections:", results.detections.length);
-            if (results.detections.length > 0) {
-                setFaceVisible(true);
-                if (timeoutRef.current) clearTimeout(timeoutRef.current);
-            } else {
-                // If no face for 3 seconds → alert
-                timeoutRef.current = setTimeout(() => {
-                    setFaceVisible(false);
-                }, 300);
-            }
-        });
-
-        if (videoRef.current) {
-            const camera = new Camera(videoRef.current, {
-                onFrame: async () => {
-                    await faceDetection.send({ image: videoRef.current! });
-                },
-                width: 320,
-                height: 240,
+        const initFaceDetection = async () => {
+            faceDetection = new FaceDetection({
+                locateFile: (file) =>
+                    `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`,
             });
-            camera.start();
-        }
+
+            faceDetection.setOptions({
+                model: 'short',
+                minDetectionConfidence: 0.5,
+            });
+
+            faceDetection.onResults((results) => {
+                if (!isMounted) return;
+                console.log("Detections:", results.detections.length);
+                if (results.detections.length > 0) {
+                    setFaceVisible(true);
+                    if (timeoutRef.current) {
+                        clearTimeout(timeoutRef.current);
+                        timeoutRef.current = null;
+                    }
+                } else {
+                    if (!timeoutRef.current) {
+                        timeoutRef.current = setTimeout(() => {
+                            if (isMounted) setFaceVisible(false);
+                        }, 3000);
+                    }
+                }
+            });
+
+            if (videoRef.current) {
+                camera = new Camera(videoRef.current, {
+                    onFrame: async () => {
+                        if (faceDetection && isMounted) {
+                            await faceDetection.send({ image: videoRef.current! });
+                        }
+                    },
+                    width: 320,
+                    height: 240,
+                });
+                console.log("Starting camera...");
+                await camera.start();
+                console.log("Camera started");
+            }
+        };
+
+        initFaceDetection().catch(err => {
+            console.error("Error initializing Face Detection:", err);
+        });
+
+        return () => {
+            console.log("Cleanup FaceMonitor");
+            isMounted = false;
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            if (camera) {
+                // Camera utils from mediapipe usually expose stop(), but checking typedefs locally might be hard. 
+                // However, standard usage suggests .stop() or just letting it go.
+                // The @mediapipe/camera_utils Camera class has a stop() method.
+                (camera as any).stop?.();
+            }
+            if (faceDetection) {
+                faceDetection.close();
+            }
+        };
     }, []);
 
     return (
